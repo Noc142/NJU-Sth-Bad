@@ -4,24 +4,32 @@ import time
 import datetime
 from pytz import timezone
 from urllib.parse import urlencode
+import os
 
 URL_JKDK_LIST = 'http://ehallapp.nju.edu.cn/xgfw/sys/yqfxmrjkdkappnju/apply/getApplyInfoList.do'
 URL_JKDK_APPLY = 'http://ehallapp.nju.edu.cn/xgfw/sys/yqfxmrjkdkappnju/apply/saveApplyInfos.do'
 URL_JDKD_INDEX = 'http://ehallapp.nju.edu.cn/xgfw/sys/mrjkdkappnju/index.html'
 
 
-def get_zjhs_time(method='YESTERDAY'):
+def get_zjhs_time(method='EVERY_FIVE_DAYS'):
     """获取最近核酸时间"""
     today = datetime.datetime.now(timezone('Asia/Shanghai'))
-    yesterday = today + datetime.timedelta(-1)
-    if method == 'YESTERDAY':
-        return yesterday.strftime("%Y-%m-%d %-H")
+    start_day = datetime.datetime.strptime("2022-04-%02d" % (8 + int(os.getenv('NJU_USERNAME')[-1]) % 5), "%Y-%m-%d").replace(tzinfo=timezone('Asia/Shanghai'))  # 根据学号推算仙林本科生及研究生常态化核酸的时间
+    weekday_dict = {'MONDAY': 0, 'TUESDAY': 1, 'WEDNESDAY': 2, 'THURSDAY': 3, 'FRIDAY': 4, 'SATURDAY': 5, 'SUNDAY': 6}
+    zjhs_time = today
+    if method == 'EVERY_FIVE_DAYS':
+        zjhs_time += datetime.timedelta(days=-((today - start_day).days % 5))
+    elif method == 'YESTERDAY':
+        zjhs_time += datetime.timedelta(-1)
+    elif method in weekday_dict:
+        zjhs_time += datetime.timedelta(weekday_dict[method] - today.weekday())
+    return zjhs_time.strftime("%Y-%m-%d %-H")
 
 
-def apply(curr_location, logger, auth: NjuUiaAuth, covidTestMethod='YESTERDAY', force=False):
+def apply(curr_location, logger, auth: NjuUiaAuth, covidTestMethod='EVERY_FIVE_DAYS', force=False):
     """
     完成一次健康打卡
-    :param `covidTestMethod`: 最近核酸时间的方案
+    :param `covidTestMethod`: 最近核酸时间的方案 默认为仙林常态化核酸时间，可调为`YESTERDAY`或星期几(如`MONDAY`)
     :param `force`: 是否在今日已经打卡的前提下强制打卡
     """
     for _ in range(10):
@@ -61,6 +69,7 @@ def apply(curr_location, logger, auth: NjuUiaAuth, covidTestMethod='YESTERDAY', 
 
         else:
             logger.info('今日已打卡！')
+            logger.info('若今日为本次运行时打卡，则核酸时间为' + get_zjhs_time(covidTestMethod))
             return True
 
     logger.error("打卡失败，请尝试手动打卡")
